@@ -9,24 +9,92 @@ import Combine
 import Foundation
 import HomeKit
 
+struct LogEntry: Identifiable {
+    let id = UUID()
+    let timestamp: Date
+    let message: String
+    let rawEvent: String
+}
+
+struct Subscription: Identifiable, Codable {
+    let id: UUID
+    let pattern: String
+    var lastMatch: Date?
+    var matchCount: Int
+
+    init(pattern: String) {
+        self.id = UUID()
+        self.pattern = pattern
+        self.lastMatch = nil
+        self.matchCount = 0
+    }
+}
+
 class HomeKitManager: NSObject, ObservableObject {
     private let homeManager = HMHomeManager()
 
     @Published var homes: [HMHome] = []
-    @Published var eventLog: [String] = []
+    @Published var eventLog: [LogEntry] = []
+    @Published var subscriptions: [Subscription] = []
 
     override init() {
         super.init()
         homeManager.delegate = self
+        loadSubscriptions()
         logEvent("HomeKitManager initialized")
     }
 
     private func logEvent(_ message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let logMessage = "[\(timestamp)] \(message)"
+        let timestamp = Date()
+        let timestampStr = ISO8601DateFormatter().string(from: timestamp)
+        let logMessage = "[\(timestampStr)] \(message)"
         print(logMessage)
+
+        let entry = LogEntry(timestamp: timestamp, message: logMessage, rawEvent: message)
+
         DispatchQueue.main.async {
-            self.eventLog.append(logMessage)
+            self.eventLog.append(entry)
+            self.checkSubscriptions(for: message, at: timestamp)
+        }
+    }
+
+    func addSubscription(pattern: String) {
+        let subscription = Subscription(pattern: pattern)
+        DispatchQueue.main.async {
+            self.subscriptions.append(subscription)
+            self.saveSubscriptions()
+        }
+    }
+
+    func removeSubscription(id: UUID) {
+        DispatchQueue.main.async {
+            self.subscriptions.removeAll { $0.id == id }
+            self.saveSubscriptions()
+        }
+    }
+
+    private func checkSubscriptions(for message: String, at timestamp: Date) {
+        for index in subscriptions.indices {
+            let pattern = subscriptions[index].pattern.lowercased()
+            if message.lowercased().contains(pattern) {
+                subscriptions[index].lastMatch = timestamp
+                subscriptions[index].matchCount += 1
+                saveSubscriptions()
+            }
+        }
+    }
+
+    private func saveSubscriptions() {
+        if let encoded = try? JSONEncoder().encode(subscriptions) {
+            UserDefaults.standard.set(encoded, forKey: "homekit_subscriptions")
+        }
+    }
+
+    private func loadSubscriptions() {
+        if let data = UserDefaults.standard.data(forKey: "homekit_subscriptions"),
+            let decoded = try? JSONDecoder().decode([Subscription].self, from: data)
+        {
+            subscriptions = decoded
         }
     }
 
