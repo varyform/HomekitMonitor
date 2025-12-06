@@ -88,6 +88,9 @@ class HomeKitManager: NSObject, ObservableObject {
 
         DispatchQueue.main.async {
             self.eventLog.append(entry)
+            if self.eventLog.count > 1000 {
+                self.eventLog.removeFirst(self.eventLog.count - 1000)
+            }
             self.checkSubscriptions(for: message, at: timestamp)
         }
     }
@@ -102,6 +105,9 @@ class HomeKitManager: NSObject, ObservableObject {
 
         await MainActor.run {
             self.eventLog.append(entry)
+            if self.eventLog.count > 1000 {
+                self.eventLog.removeFirst(self.eventLog.count - 1000)
+            }
         }
     }
 
