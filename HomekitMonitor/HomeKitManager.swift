@@ -183,11 +183,11 @@ class HomeKitManager: NSObject, ObservableObject {
             }
 
             print("DEBUG: About to log MQTT info")
-            await self.logEventAsync("MQTT: Topic=\(topic)")
-            await self.logEventAsync("MQTT: Payload before interpolation=\(payloadTemplate)")
-            await self.logEventAsync("MQTT: Value to interpolate='\(value)'")
-            await self.logEventAsync("MQTT: Payload after interpolation=\(payload)")
-            await self.logEventAsync("MQTT: Server=\(server):\(port)")
+            print("MQTT: Topic=\(topic)")
+            print("MQTT: Payload before interpolation=\(payloadTemplate)")
+            print("MQTT: Value to interpolate='\(value)'")
+            print("MQTT: Payload after interpolation=\(payload)")
+            print("MQTT: Server=\(server):\(port)")
 
             // Validate JSON
             guard let jsonData = payload.data(using: .utf8) else {
@@ -195,18 +195,17 @@ class HomeKitManager: NSObject, ObservableObject {
                 return
             }
 
-            await self.logEventAsync(
+            print(
                 "MQTT: Payload bytes: \(jsonData.map { String(format: "%02x", $0) }.joined(separator: " "))"
             )
-            await self.logEventAsync(
-                "MQTT: Payload length: \(payload.count) chars, \(jsonData.count) bytes")
+            print("MQTT: Payload length: \(payload.count) chars, \(jsonData.count) bytes")
 
             do {
                 _ = try JSONSerialization.jsonObject(with: jsonData)
-                await self.logEventAsync("MQTT: ✓ JSON validation passed")
+                print("MQTT: ✓ JSON validation passed")
             } catch {
                 await self.logEventAsync("MQTT: ✗ Invalid JSON - \(error.localizedDescription)")
-                await self.logEventAsync("MQTT: Raw payload: [\(payload)]")
+                print("MQTT: Raw payload: [\(payload)]")
                 return
             }
 
@@ -254,7 +253,7 @@ class HomeKitManager: NSObject, ObservableObject {
         }
 
         print("DEBUG: About to log connection message")
-        await logEventAsync("MQTT: Connecting to \(mqttConfig.server):\(mqttConfig.port)...")
+        print("MQTT: Connecting to \(mqttConfig.server):\(mqttConfig.port)...")
 
         print("DEBUG: Creating MQTTClient configuration")
         let configuration = MQTTClient.Configuration(
@@ -281,7 +280,7 @@ class HomeKitManager: NSObject, ObservableObject {
             self.mqttConnected = true
         }
         print("DEBUG: About to log success message")
-        await logEventAsync("MQTT: ✓ Connected successfully")
+        print("MQTT: ✓ Connected successfully")
         print("DEBUG: connectMQTTIfNeeded completed")
     }
 
@@ -316,10 +315,9 @@ class HomeKitManager: NSObject, ObservableObject {
             guard let self = self else { return }
             do {
                 try await self.mqttClient?.disconnect()
-                await self.logEventAsync("MQTT: Disconnected")
+                print("MQTT: Disconnected")
             } catch {
-                await self.logEventAsync(
-                    "MQTT: Error disconnecting - \(error.localizedDescription)")
+                print("MQTT: Error disconnecting - \(error.localizedDescription)")
             }
             await MainActor.run {
                 self.mqttConnected = false
