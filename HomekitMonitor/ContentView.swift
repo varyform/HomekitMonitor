@@ -220,6 +220,12 @@ struct EditSubscriptionView: View {
                     .font(.system(.body, design: .monospaced))
                     .frame(height: 120)
                     .border(Color.gray.opacity(0.3))
+                    .disableAutocorrection(true)
+                    #if os(macOS)
+                        .onAppear {
+                            NSTextView.appearance().automaticQuoteSubstitutionEnabled = false
+                        }
+                    #endif
 
                 Text("Example: {\"state\": \"{{value}}\", \"device\": \"sensor1\"}")
                     .font(.caption2)

@@ -159,10 +159,19 @@ class HomeKitManager: NSObject, ObservableObject {
 
     private func publishToMQTT(subscription: Subscription, value: String) {
         let topic = "\(mqttConfig.prefix)/\(subscription.mqttTopic)"
-        let payload = subscription.mqttPayload.replacingOccurrences(of: "{{value}}", with: value)
+
+        // Trim whitespace from template and replace smart quotes with straight quotes
+        let payloadTemplate = subscription.mqttPayload.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        .replacingOccurrences(of: "\u{201C}", with: "\"")
+        .replacingOccurrences(of: "\u{201D}", with: "\"")
+        .replacingOccurrences(of: "\u{2018}", with: "'")
+        .replacingOccurrences(of: "\u{2019}", with: "'")
+        let payload = payloadTemplate.replacingOccurrences(of: "{{value}}", with: value)
+
         let server = mqttConfig.server
         let port = mqttConfig.port
-        let payloadTemplate = subscription.mqttPayload
 
         print("DEBUG: publishToMQTT called - about to create Task.detached")
 
@@ -179,6 +188,27 @@ class HomeKitManager: NSObject, ObservableObject {
             await self.logEventAsync("MQTT: Value to interpolate='\(value)'")
             await self.logEventAsync("MQTT: Payload after interpolation=\(payload)")
             await self.logEventAsync("MQTT: Server=\(server):\(port)")
+
+            // Validate JSON
+            guard let jsonData = payload.data(using: .utf8) else {
+                await self.logEventAsync("MQTT: ✗ Failed to encode payload as UTF-8")
+                return
+            }
+
+            await self.logEventAsync(
+                "MQTT: Payload bytes: \(jsonData.map { String(format: "%02x", $0) }.joined(separator: " "))"
+            )
+            await self.logEventAsync(
+                "MQTT: Payload length: \(payload.count) chars, \(jsonData.count) bytes")
+
+            do {
+                _ = try JSONSerialization.jsonObject(with: jsonData)
+                await self.logEventAsync("MQTT: ✓ JSON validation passed")
+            } catch {
+                await self.logEventAsync("MQTT: ✗ Invalid JSON - \(error.localizedDescription)")
+                await self.logEventAsync("MQTT: Raw payload: [\(payload)]")
+                return
+            }
 
             print("DEBUG: About to start connection/publish")
             do {
