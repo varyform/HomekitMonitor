@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CodeEditor
 
 struct ContentView: View {
     @StateObject private var homeKitManager = HomeKitManager()
@@ -216,7 +217,11 @@ struct EditSubscriptionView: View {
                 Text("MQTT Payload (use {{value}} for interpolation)")
                     .font(.caption)
                     .padding(.top, 10)
-                TextEditor(text: $mqttPayload)
+                CodeEditor(
+                    source: $mqttPayload,
+                    language: .json,
+                    theme: CodeEditor.ThemeName(rawValue: "atom-one-dark"))
+                
                     .font(.system(.body, design: .monospaced))
                     .frame(height: 120)
                     .border(Color.gray.opacity(0.3))

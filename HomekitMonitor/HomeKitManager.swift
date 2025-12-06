@@ -170,10 +170,6 @@ class HomeKitManager: NSObject, ObservableObject {
         let payloadTemplate = subscription.mqttPayload.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        .replacingOccurrences(of: "\u{201C}", with: "\"")
-        .replacingOccurrences(of: "\u{201D}", with: "\"")
-        .replacingOccurrences(of: "\u{2018}", with: "'")
-        .replacingOccurrences(of: "\u{2019}", with: "'")
         let payload = payloadTemplate.replacingOccurrences(of: "{{value}}", with: value)
 
         let server = mqttConfig.server

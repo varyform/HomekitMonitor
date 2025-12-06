@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FCDE3EE62EE4CB5E00AE67FC /* CodeEditorView in Frameworks */ = {isa = PBXBuildFile; productRef = FCDE3EE52EE4CB5E00AE67FC /* CodeEditorView */; };
+		FCDE3EE82EE4CB5E00AE67FC /* LanguageSupport in Frameworks */ = {isa = PBXBuildFile; productRef = FCDE3EE72EE4CB5E00AE67FC /* LanguageSupport */; };
+		FCDE3EEB2EE4CC8F00AE67FC /* CodeEditor in Frameworks */ = {isa = PBXBuildFile; productRef = FCDE3EEA2EE4CC8F00AE67FC /* CodeEditor */; };
 		FCEAF7BB2EE4A53700E68D16 /* MQTTNIO in Frameworks */ = {isa = PBXBuildFile; productRef = FCEAF7BA2EE4A53700E68D16 /* MQTTNIO */; };
 		FCEAF7BF2EE4B83B00E68D16 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = FCEAF7BE2EE4B83B00E68D16 /* README.md */; };
 /* End PBXBuildFile section */
@@ -29,7 +32,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FCDE3EEB2EE4CC8F00AE67FC /* CodeEditor in Frameworks */,
 				FCEAF7BB2EE4A53700E68D16 /* MQTTNIO in Frameworks */,
+				FCDE3EE82EE4CB5E00AE67FC /* LanguageSupport in Frameworks */,
+				FCDE3EE62EE4CB5E00AE67FC /* CodeEditorView in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,6 +80,9 @@
 			name = HomekitMonitor;
 			packageProductDependencies = (
 				FCEAF7BA2EE4A53700E68D16 /* MQTTNIO */,
+				FCDE3EE52EE4CB5E00AE67FC /* CodeEditorView */,
+				FCDE3EE72EE4CB5E00AE67FC /* LanguageSupport */,
+				FCDE3EEA2EE4CC8F00AE67FC /* CodeEditor */,
 			);
 			productName = HomekitMonitor;
 			productReference = FCD7FA422EE4707600AC73FE /* HomekitMonitor.app */;
@@ -105,6 +114,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				FCEAF7B92EE4A53700E68D16 /* XCRemoteSwiftPackageReference "mqtt-nio" */,
+				FCDE3EE42EE4CB5E00AE67FC /* XCRemoteSwiftPackageReference "CodeEditorView" */,
+				FCDE3EE92EE4CC8F00AE67FC /* XCRemoteSwiftPackageReference "CodeEditor" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FCD7FA432EE4707600AC73FE /* Products */;
@@ -383,6 +394,22 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		FCDE3EE42EE4CB5E00AE67FC /* XCRemoteSwiftPackageReference "CodeEditorView" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mchakravarty/CodeEditorView";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.15.4;
+			};
+		};
+		FCDE3EE92EE4CC8F00AE67FC /* XCRemoteSwiftPackageReference "CodeEditor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ZeeZide/CodeEditor.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.6;
+			};
+		};
 		FCEAF7B92EE4A53700E68D16 /* XCRemoteSwiftPackageReference "mqtt-nio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/swift-server-community/mqtt-nio";
@@ -394,6 +421,21 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		FCDE3EE52EE4CB5E00AE67FC /* CodeEditorView */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCDE3EE42EE4CB5E00AE67FC /* XCRemoteSwiftPackageReference "CodeEditorView" */;
+			productName = CodeEditorView;
+		};
+		FCDE3EE72EE4CB5E00AE67FC /* LanguageSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCDE3EE42EE4CB5E00AE67FC /* XCRemoteSwiftPackageReference "CodeEditorView" */;
+			productName = LanguageSupport;
+		};
+		FCDE3EEA2EE4CC8F00AE67FC /* CodeEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCDE3EE92EE4CC8F00AE67FC /* XCRemoteSwiftPackageReference "CodeEditor" */;
+			productName = CodeEditor;
+		};
 		FCEAF7BA2EE4A53700E68D16 /* MQTTNIO */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = FCEAF7B92EE4A53700E68D16 /* XCRemoteSwiftPackageReference "mqtt-nio" */;
