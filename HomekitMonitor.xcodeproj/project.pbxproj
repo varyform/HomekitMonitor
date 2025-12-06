@@ -8,10 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		FCEAF7BB2EE4A53700E68D16 /* MQTTNIO in Frameworks */ = {isa = PBXBuildFile; productRef = FCEAF7BA2EE4A53700E68D16 /* MQTTNIO */; };
+		FCEAF7BF2EE4B83B00E68D16 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = FCEAF7BE2EE4B83B00E68D16 /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		FCD7FA422EE4707600AC73FE /* HomekitMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HomekitMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FCEAF7BE2EE4B83B00E68D16 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -37,6 +39,7 @@
 		FCD7FA392EE4707600AC73FE = {
 			isa = PBXGroup;
 			children = (
+				FCEAF7BE2EE4B83B00E68D16 /* README.md */,
 				FCD7FA442EE4707600AC73FE /* HomekitMonitor */,
 				FCD7FA432EE4707600AC73FE /* Products */,
 			);
@@ -118,6 +121,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FCEAF7BF2EE4B83B00E68D16 /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
