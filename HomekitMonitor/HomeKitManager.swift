@@ -98,25 +98,34 @@ class HomeKitManager: NSObject, ObservableObject {
         }
     }
 
+    private func getRoomName(for accessory: HMAccessory) -> String {
+        return accessory.room?.name ?? "No Room"
+    }
+
     private func setupAccessoryDelegates(for home: HMHome) {
         for accessory in home.accessories {
             accessory.delegate = self
-            logEvent("Registered delegate for accessory: \(accessory.name)")
+            let room = getRoomName(for: accessory)
+            logEvent("Registered delegate for accessory: \(accessory.name) [Room: \(room)]")
 
             for service in accessory.services {
-                logEvent("Service: \(service.name) (\(service.serviceType)) on \(accessory.name)")
+                logEvent(
+                    "Service: \(service.name) (\(service.serviceType)) on \(accessory.name) [Room: \(room)]"
+                )
 
                 for characteristic in service.characteristics {
                     logEvent(
-                        "Characteristic: \(characteristic.localizedDescription) on \(service.name)")
+                        "Characteristic: \(characteristic.localizedDescription) on \(service.name) [Room: \(room)]"
+                    )
                     characteristic.enableNotification(true) { error in
                         if let error = error {
                             self.logEvent(
-                                "Failed to enable notifications for \(characteristic.localizedDescription): \(error.localizedDescription)"
+                                "Failed to enable notifications for \(characteristic.localizedDescription) [Room: \(room)]: \(error.localizedDescription)"
                             )
                         } else {
                             self.logEvent(
-                                "Enabled notifications for \(characteristic.localizedDescription)")
+                                "Enabled notifications for \(characteristic.localizedDescription) [Room: \(room)]"
+                            )
                         }
                     }
                 }
@@ -147,13 +156,15 @@ extension HomeKitManager: HMHomeDelegate {
     }
 
     func home(_ home: HMHome, didAdd accessory: HMAccessory) {
-        logEvent("Accessory added: \(accessory.name) to home: \(home.name)")
+        let room = getRoomName(for: accessory)
+        logEvent("Accessory added: \(accessory.name) [Room: \(room)] to home: \(home.name)")
         accessory.delegate = self
         setupAccessoryDelegates(for: home)
     }
 
     func home(_ home: HMHome, didRemove accessory: HMAccessory) {
-        logEvent("Accessory removed: \(accessory.name) from home: \(home.name)")
+        let room = getRoomName(for: accessory)
+        logEvent("Accessory removed: \(accessory.name) [Room: \(room)] from home: \(home.name)")
     }
 
     func home(_ home: HMHome, didAdd user: HMUser) {
@@ -219,24 +230,32 @@ extension HomeKitManager: HMHomeDelegate {
 
 extension HomeKitManager: HMAccessoryDelegate {
     func accessoryDidUpdateName(_ accessory: HMAccessory) {
-        logEvent("Accessory name updated: \(accessory.name)")
+        let room = getRoomName(for: accessory)
+        logEvent("Accessory name updated: \(accessory.name) [Room: \(room)]")
     }
 
     func accessory(_ accessory: HMAccessory, didUpdateNameFor service: HMService) {
-        logEvent("Service name updated: \(service.name) on accessory: \(accessory.name)")
+        let room = getRoomName(for: accessory)
+        logEvent(
+            "Service name updated: \(service.name) on accessory: \(accessory.name) [Room: \(room)]")
     }
 
     func accessory(_ accessory: HMAccessory, didUpdateAssociatedServiceTypeFor service: HMService) {
-        logEvent("Service type updated for: \(service.name) on accessory: \(accessory.name)")
+        let room = getRoomName(for: accessory)
+        logEvent(
+            "Service type updated for: \(service.name) on accessory: \(accessory.name) [Room: \(room)]"
+        )
     }
 
     func accessoryDidUpdateServices(_ accessory: HMAccessory) {
-        logEvent("Services updated for accessory: \(accessory.name)")
+        let room = getRoomName(for: accessory)
+        logEvent("Services updated for accessory: \(accessory.name) [Room: \(room)]")
     }
 
     func accessoryDidUpdateReachability(_ accessory: HMAccessory) {
         let status = accessory.isReachable ? "reachable" : "unreachable"
-        logEvent("Accessory \(accessory.name) is now \(status)")
+        let room = getRoomName(for: accessory)
+        logEvent("Accessory \(accessory.name) [Room: \(room)] is now \(status)")
     }
 
     func accessory(
@@ -244,8 +263,9 @@ extension HomeKitManager: HMAccessoryDelegate {
         didUpdateValueFor characteristic: HMCharacteristic
     ) {
         let value = characteristic.value ?? "nil"
+        let room = getRoomName(for: accessory)
         logEvent(
-            "Characteristic updated: \(characteristic.localizedDescription) = \(value) on service: \(service.name) of accessory: \(accessory.name)"
+            "Characteristic updated: \(characteristic.localizedDescription) = \(value) on service: \(service.name) of accessory: \(accessory.name) [Room: \(room)]"
         )
     }
 }
