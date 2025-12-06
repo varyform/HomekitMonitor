@@ -21,12 +21,32 @@ struct Subscription: Identifiable, Codable {
     let pattern: String
     var lastMatch: Date?
     var matchCount: Int
+    var mqttTopic: String
+    var mqttPayload: String
 
-    init(pattern: String) {
+    init(pattern: String, mqttTopic: String = "", mqttPayload: String = "") {
         self.id = UUID()
         self.pattern = pattern
         self.lastMatch = nil
         self.matchCount = 0
+        self.mqttTopic = mqttTopic
+        self.mqttPayload = mqttPayload
+    }
+}
+
+struct MQTTConfig: Codable {
+    var server: String
+    var port: Int
+    var username: String
+    var password: String
+    var prefix: String
+
+    init() {
+        self.server = "localhost"
+        self.port = 1883
+        self.username = ""
+        self.password = ""
+        self.prefix = "homekit"
     }
 }
 
@@ -36,11 +56,13 @@ class HomeKitManager: NSObject, ObservableObject {
     @Published var homes: [HMHome] = []
     @Published var eventLog: [LogEntry] = []
     @Published var subscriptions: [Subscription] = []
+    @Published var mqttConfig = MQTTConfig()
 
     override init() {
         super.init()
         homeManager.delegate = self
         loadSubscriptions()
+        loadMQTTConfig()
         logEvent("HomeKitManager initialized")
     }
 
@@ -58,11 +80,20 @@ class HomeKitManager: NSObject, ObservableObject {
         }
     }
 
-    func addSubscription(pattern: String) {
-        let subscription = Subscription(pattern: pattern)
+    func addSubscription(pattern: String, mqttTopic: String = "", mqttPayload: String = "") {
+        let subscription = Subscription(
+            pattern: pattern, mqttTopic: mqttTopic, mqttPayload: mqttPayload)
         DispatchQueue.main.async {
             self.subscriptions.append(subscription)
             self.saveSubscriptions()
+        }
+    }
+
+    func updateSubscription(id: UUID, mqttTopic: String, mqttPayload: String) {
+        if let index = subscriptions.firstIndex(where: { $0.id == id }) {
+            subscriptions[index].mqttTopic = mqttTopic
+            subscriptions[index].mqttPayload = mqttPayload
+            saveSubscriptions()
         }
     }
 
@@ -79,9 +110,30 @@ class HomeKitManager: NSObject, ObservableObject {
             if message.lowercased().contains(pattern) {
                 subscriptions[index].lastMatch = timestamp
                 subscriptions[index].matchCount += 1
+
+                // Extract value from message if present (e.g., "= VALUE")
+                if !subscriptions[index].mqttTopic.isEmpty,
+                    let valueRange = message.range(of: "= ")
+                {
+                    let valueStart = message.index(after: valueRange.upperBound)
+                    var valueEnd = message.endIndex
+                    if let nextSpace = message[valueStart...].firstIndex(of: " ") {
+                        valueEnd = nextSpace
+                    }
+                    let value = String(message[valueStart..<valueEnd])
+                    publishToMQTT(subscription: subscriptions[index], value: value)
+                }
+
                 saveSubscriptions()
             }
         }
+    }
+
+    private func publishToMQTT(subscription: Subscription, value: String) {
+        let topic = "\(mqttConfig.prefix)/\(subscription.mqttTopic)"
+        let payload = subscription.mqttPayload.replacingOccurrences(of: "{{value}}", with: value)
+        logEvent("MQTT: Publishing to \(topic) - \(payload)")
+        // TODO: Implement actual MQTT publish
     }
 
     private func saveSubscriptions() {
@@ -95,6 +147,20 @@ class HomeKitManager: NSObject, ObservableObject {
             let decoded = try? JSONDecoder().decode([Subscription].self, from: data)
         {
             subscriptions = decoded
+        }
+    }
+
+    func saveMQTTConfig() {
+        if let encoded = try? JSONEncoder().encode(mqttConfig) {
+            UserDefaults.standard.set(encoded, forKey: "mqtt_config")
+        }
+    }
+
+    private func loadMQTTConfig() {
+        if let data = UserDefaults.standard.data(forKey: "mqtt_config"),
+            let decoded = try? JSONDecoder().decode(MQTTConfig.self, from: data)
+        {
+            mqttConfig = decoded
         }
     }
 

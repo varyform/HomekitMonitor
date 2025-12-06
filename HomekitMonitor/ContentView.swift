@@ -24,6 +24,12 @@ struct ContentView: View {
                     Label("Subscriptions", systemImage: "star")
                 }
                 .tag(1)
+
+            MQTTConfigView(homeKitManager: homeKitManager)
+                .tabItem {
+                    Label("MQTT", systemImage: "network")
+                }
+                .tag(2)
         }
     }
 }
@@ -74,6 +80,7 @@ struct EventLogView: View {
 struct SubscriptionsView: View {
     @ObservedObject var homeKitManager: HomeKitManager
     @State private var newPattern = ""
+    @State private var editingSubscription: Subscription?
 
     var body: some View {
         VStack {
@@ -97,13 +104,26 @@ struct SubscriptionsView: View {
             List {
                 ForEach(homeKitManager.subscriptions) { subscription in
                     SubscriptionRow(subscription: subscription)
+                        .onTapGesture {
+                            editingSubscription = subscription
+                        }
                         .contextMenu {
+                            Button("Edit MQTT") {
+                                editingSubscription = subscription
+                            }
                             Button("Delete", role: .destructive) {
                                 homeKitManager.removeSubscription(id: subscription.id)
                             }
                         }
                 }
             }
+        }
+        .sheet(item: $editingSubscription) { subscription in
+            EditSubscriptionView(
+                homeKitManager: homeKitManager,
+                subscription: subscription,
+                isPresented: $editingSubscription
+            )
         }
     }
 }
@@ -155,6 +175,136 @@ struct SubscriptionRow: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+struct EditSubscriptionView: View {
+    @ObservedObject var homeKitManager: HomeKitManager
+    let subscription: Subscription
+    @Binding var isPresented: Subscription?
+
+    @State private var mqttTopic: String
+    @State private var mqttPayload: String
+
+    init(
+        homeKitManager: HomeKitManager, subscription: Subscription,
+        isPresented: Binding<Subscription?>
+    ) {
+        self.homeKitManager = homeKitManager
+        self.subscription = subscription
+        self._isPresented = isPresented
+        self._mqttTopic = State(initialValue: subscription.mqttTopic)
+        self._mqttPayload = State(initialValue: subscription.mqttPayload)
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Edit Subscription")
+                .font(.title)
+                .padding()
+
+            VStack(alignment: .leading) {
+                Text("Pattern: \(subscription.pattern)")
+                    .font(.headline)
+                    .padding(.bottom, 10)
+
+                Text("MQTT Topic")
+                    .font(.caption)
+                TextField("e.g., sensors/temperature", text: $mqttTopic)
+                    .textFieldStyle(.roundedBorder)
+
+                Text("MQTT Payload (use {{value}} for interpolation)")
+                    .font(.caption)
+                    .padding(.top, 10)
+                TextEditor(text: $mqttPayload)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(height: 120)
+                    .border(Color.gray.opacity(0.3))
+
+                Text("Example: {\"state\": \"{{value}}\", \"device\": \"sensor1\"}")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+
+            HStack {
+                Button("Cancel") {
+                    isPresented = nil
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Save") {
+                    homeKitManager.updateSubscription(
+                        id: subscription.id,
+                        mqttTopic: mqttTopic,
+                        mqttPayload: mqttPayload
+                    )
+                    isPresented = nil
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+        }
+        .frame(width: 500, height: 400)
+    }
+}
+
+struct MQTTConfigView: View {
+    @ObservedObject var homeKitManager: HomeKitManager
+
+    var body: some View {
+        VStack {
+            Text("MQTT Configuration")
+                .font(.largeTitle)
+                .padding()
+
+            Form {
+                Section(header: Text("Broker Settings")) {
+                    HStack {
+                        Text("Server:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("localhost", text: $homeKitManager.mqttConfig.server)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Port:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("1883", value: $homeKitManager.mqttConfig.port, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Username:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("Optional", text: $homeKitManager.mqttConfig.username)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Password:")
+                            .frame(width: 100, alignment: .trailing)
+                        SecureField("Optional", text: $homeKitManager.mqttConfig.password)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Topic Prefix:")
+                            .frame(width: 100, alignment: .trailing)
+                        TextField("homekit", text: $homeKitManager.mqttConfig.prefix)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+            }
+            .padding()
+
+            Button("Save Configuration") {
+                homeKitManager.saveMQTTConfig()
+            }
+            .padding()
+        }
     }
 }
 
