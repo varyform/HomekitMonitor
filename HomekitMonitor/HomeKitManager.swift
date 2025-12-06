@@ -12,24 +12,65 @@ import MQTTNIO
 import NIOCore
 import NIOPosix
 
-struct LogEntry: Identifiable {
+enum HomeKitEventType: String, Codable {
+    case characteristicUpdated
+    case accessoryReachabilityChanged
+    case accessoryAdded
+    case accessoryRemoved
+    case homeUpdated
+    case roomUpdated
+    case serviceUpdated
+    case actionSetExecuted
+}
+
+struct HomeKitEvent: Identifiable {
     let id = UUID()
     let timestamp: Date
-    let message: String
-    let rawEvent: String
+    let type: HomeKitEventType
+    let accessoryName: String?
+    let roomName: String?
+    let serviceName: String?
+    let characteristicName: String?
+    let value: String?
+
+    var displayText: String {
+        let timestampStr = ISO8601DateFormatter().string(from: timestamp)
+        var parts = ["[\(timestampStr)]", type.rawValue]
+
+        if let characteristic = characteristicName, let service = serviceName,
+            let accessory = accessoryName
+        {
+            parts.append("\(characteristic) = \(value ?? "nil") on \(service) of \(accessory)")
+            if let room = roomName {
+                parts.append("[Room: \(room)]")
+            }
+        } else if let accessory = accessoryName {
+            parts.append(accessory)
+            if let room = roomName {
+                parts.append("[Room: \(room)]")
+            }
+        }
+
+        return parts.joined(separator: " ")
+    }
 }
 
 struct Subscription: Identifiable, Codable {
     let id: UUID
-    let pattern: String
+    let accessoryName: String
+    let characteristicName: String
     var lastMatch: Date?
     var matchCount: Int
     var mqttTopic: String
     var mqttPayload: String
 
-    init(pattern: String, mqttTopic: String = "", mqttPayload: String = "") {
+    init(
+        accessoryName: String, characteristicName: String, mqttTopic: String = "",
+        mqttPayload: String = ""
+    ) {
         self.id = UUID()
-        self.pattern = pattern
+        self.accessoryName = accessoryName
+        self.characteristicName = characteristicName
         self.lastMatch = nil
         self.matchCount = 0
         self.mqttTopic = mqttTopic
@@ -57,7 +98,7 @@ class HomeKitManager: NSObject, ObservableObject {
     private let homeManager = HMHomeManager()
 
     @Published var homes: [HMHome] = []
-    @Published var eventLog: [LogEntry] = []
+    @Published var eventLog: [HomeKitEvent] = []
     @Published var subscriptions: [Subscription] = []
     @Published var mqttConfig = MQTTConfig()
     @Published var mqttConnected = false
@@ -71,49 +112,52 @@ class HomeKitManager: NSObject, ObservableObject {
         homeManager.delegate = self
         loadSubscriptions()
         loadMQTTConfig()
-        logEvent("HomeKitManager initialized")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: nil,
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: nil,
+                value: "Initialized"
+            ))
     }
 
     deinit {
         try? eventLoopGroup.syncShutdownGracefully()
     }
 
-    private func logEvent(_ message: String) {
-        let timestamp = Date()
-        let timestampStr = ISO8601DateFormatter().string(from: timestamp)
-        let logMessage = "[\(timestampStr)] \(message)"
-        print(logMessage)
-
-        let entry = LogEntry(timestamp: timestamp, message: logMessage, rawEvent: message)
+    private func logEvent(_ event: HomeKitEvent) {
+        print(event.displayText)
 
         DispatchQueue.main.async {
-            self.eventLog.append(entry)
+            self.eventLog.append(event)
             if self.eventLog.count > 1000 {
                 self.eventLog.removeFirst(self.eventLog.count - 1000)
             }
-            self.checkSubscriptions(for: message, at: timestamp)
+            self.checkSubscriptions(for: event)
         }
     }
 
-    private func logEventAsync(_ message: String) async {
-        let timestamp = Date()
-        let timestampStr = ISO8601DateFormatter().string(from: timestamp)
-        let logMessage = "[\(timestampStr)] \(message)"
-        print(logMessage)
-
-        let entry = LogEntry(timestamp: timestamp, message: logMessage, rawEvent: message)
+    private func logEventAsync(_ event: HomeKitEvent) async {
+        print(event.displayText)
 
         await MainActor.run {
-            self.eventLog.append(entry)
+            self.eventLog.append(event)
             if self.eventLog.count > 1000 {
                 self.eventLog.removeFirst(self.eventLog.count - 1000)
             }
         }
     }
 
-    func addSubscription(pattern: String, mqttTopic: String = "", mqttPayload: String = "") {
+    func addSubscription(
+        accessoryName: String, characteristicName: String, mqttTopic: String = "",
+        mqttPayload: String = ""
+    ) {
         let subscription = Subscription(
-            pattern: pattern, mqttTopic: mqttTopic, mqttPayload: mqttPayload)
+            accessoryName: accessoryName, characteristicName: characteristicName,
+            mqttTopic: mqttTopic, mqttPayload: mqttPayload)
         DispatchQueue.main.async {
             self.subscriptions.append(subscription)
             self.saveSubscriptions()
@@ -135,27 +179,22 @@ class HomeKitManager: NSObject, ObservableObject {
         }
     }
 
-    private func checkSubscriptions(for message: String, at timestamp: Date) {
+    private func checkSubscriptions(for event: HomeKitEvent) {
+        guard event.type == .characteristicUpdated else { return }
+        guard let accessory = event.accessoryName,
+            let characteristic = event.characteristicName,
+            let value = event.value
+        else { return }
+
         for index in subscriptions.indices {
-            let pattern = subscriptions[index].pattern.lowercased()
-            if message.lowercased().contains(pattern) {
-                subscriptions[index].lastMatch = timestamp
+            if subscriptions[index].accessoryName == accessory
+                && subscriptions[index].characteristicName == characteristic
+            {
+                subscriptions[index].lastMatch = event.timestamp
                 subscriptions[index].matchCount += 1
 
-                // Extract value from message if present (e.g., "= VALUE")
                 if !subscriptions[index].mqttTopic.isEmpty {
-                    if let valueRange = message.range(of: "= ") {
-                        let valueStart = valueRange.upperBound
-                        var valueEnd = message.endIndex
-                        if let nextSpace = message[valueStart...].firstIndex(of: " ") {
-                            valueEnd = nextSpace
-                        }
-                        let value = String(message[valueStart..<valueEnd])
-                        logEvent("MQTT: Extracted value '\(value)' from message")
-                        publishToMQTT(subscription: subscriptions[index], value: value)
-                    } else {
-                        logEvent("MQTT: No value found in message (missing '= ')")
-                    }
+                    publishToMQTT(subscription: subscriptions[index], value: value)
                 }
 
                 saveSubscriptions()
@@ -193,7 +232,7 @@ class HomeKitManager: NSObject, ObservableObject {
 
             // Validate JSON
             guard let jsonData = payload.data(using: .utf8) else {
-                await self.logEventAsync("MQTT: ✗ Failed to encode payload as UTF-8")
+                print("MQTT: ✗ Failed to encode payload as UTF-8")
                 return
             }
 
@@ -206,7 +245,7 @@ class HomeKitManager: NSObject, ObservableObject {
                 _ = try JSONSerialization.jsonObject(with: jsonData)
                 print("MQTT: ✓ JSON validation passed")
             } catch {
-                await self.logEventAsync("MQTT: ✗ Invalid JSON - \(error.localizedDescription)")
+                print("MQTT: ✗ Invalid JSON - \(error.localizedDescription)")
                 print("MQTT: Raw payload: [\(payload)]")
                 return
             }
@@ -224,15 +263,41 @@ class HomeKitManager: NSObject, ObservableObject {
                         retain: false)
                 }
                 print("DEBUG: Publish completed")
-                await self.logEventAsync("MQTT: ✓ Published successfully")
+                await self.logEventAsync(
+                    HomeKitEvent(
+                        timestamp: Date(),
+                        type: .characteristicUpdated,
+                        accessoryName: "MQTT",
+                        roomName: nil,
+                        serviceName: nil,
+                        characteristicName: "Publish",
+                        value: "Success"
+                    ))
             } catch is TimeoutError {
                 print("DEBUG: Caught TimeoutError")
-                await self.logEventAsync("MQTT: ✗ Connection timeout")
+                await self.logEventAsync(
+                    HomeKitEvent(
+                        timestamp: Date(),
+                        type: .characteristicUpdated,
+                        accessoryName: "MQTT",
+                        roomName: nil,
+                        serviceName: nil,
+                        characteristicName: "Error",
+                        value: "Connection timeout"
+                    ))
                 await self.resetMQTTClient()
             } catch {
                 print("DEBUG: Caught error: \(error)")
                 await self.logEventAsync(
-                    "MQTT: ✗ Failed to publish - \(error.localizedDescription)")
+                    HomeKitEvent(
+                        timestamp: Date(),
+                        type: .characteristicUpdated,
+                        accessoryName: "MQTT",
+                        roomName: nil,
+                        serviceName: nil,
+                        characteristicName: "Error",
+                        value: error.localizedDescription
+                    ))
                 await self.resetMQTTClient()
             }
             print("DEBUG: Task.detached completed")
@@ -372,26 +437,12 @@ class HomeKitManager: NSObject, ObservableObject {
     private func setupAccessoryDelegates(for home: HMHome) {
         for accessory in home.accessories {
             accessory.delegate = self
-            let room = getRoomName(for: accessory)
-            logEvent("Registered delegate for accessory: \(accessory.name) [Room: \(room)]")
-
             for service in accessory.services {
-                logEvent(
-                    "Service: \(service.name) (\(service.serviceType)) on \(accessory.name) [Room: \(room)]"
-                )
-
                 for characteristic in service.characteristics {
-                    logEvent(
-                        "Characteristic: \(characteristic.localizedDescription) on \(service.name) [Room: \(room)]"
-                    )
                     characteristic.enableNotification(true) { error in
                         if let error = error {
-                            self.logEvent(
-                                "Failed to enable notifications for \(characteristic.localizedDescription) [Room: \(room)]: \(error.localizedDescription)"
-                            )
-                        } else {
-                            self.logEvent(
-                                "Enabled notifications for \(characteristic.localizedDescription) [Room: \(room)]"
+                            print(
+                                "Failed to enable notifications for \(characteristic.localizedDescription): \(error.localizedDescription)"
                             )
                         }
                     }
@@ -403,14 +454,22 @@ class HomeKitManager: NSObject, ObservableObject {
 
 extension HomeKitManager: HMHomeManagerDelegate {
     func homeManagerDidUpdateHomes(_ manager: HMHomeManager) {
-        logEvent("Home Manager updated homes. Total homes: \(manager.homes.count)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: nil,
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: nil,
+                value: "\(manager.homes.count) homes"
+            ))
         DispatchQueue.main.async {
             self.homes = manager.homes
         }
 
         for home in manager.homes {
             home.delegate = self
-            logEvent("Home: \(home.name)")
             setupAccessoryDelegates(for: home)
         }
     }
@@ -419,120 +478,331 @@ extension HomeKitManager: HMHomeManagerDelegate {
 
 extension HomeKitManager: HMHomeDelegate {
     func homeDidUpdateName(_ home: HMHome) {
-        logEvent("Home name updated: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: home.name,
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Name Updated",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didAdd accessory: HMAccessory) {
         let room = getRoomName(for: accessory)
-        logEvent("Accessory added: \(accessory.name) [Room: \(room)] to home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .accessoryAdded,
+                accessoryName: accessory.name,
+                roomName: room,
+                serviceName: nil,
+                characteristicName: nil,
+                value: nil
+            ))
         accessory.delegate = self
         setupAccessoryDelegates(for: home)
     }
 
     func home(_ home: HMHome, didRemove accessory: HMAccessory) {
         let room = getRoomName(for: accessory)
-        logEvent("Accessory removed: \(accessory.name) [Room: \(room)] from home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .accessoryRemoved,
+                accessoryName: accessory.name,
+                roomName: room,
+                serviceName: nil,
+                characteristicName: nil,
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didAdd user: HMUser) {
-        logEvent("User added: \(user.name) to home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "User: \(user.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Added",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didRemove user: HMUser) {
-        logEvent("User removed: \(user.name) from home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "User: \(user.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Removed",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didUpdate room: HMRoom, for accessory: HMAccessory) {
-        logEvent("Accessory \(accessory.name) moved to room: \(room.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .roomUpdated,
+                accessoryName: accessory.name,
+                roomName: room.name,
+                serviceName: nil,
+                characteristicName: "Moved",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didAdd room: HMRoom) {
-        logEvent("Room added: \(room.name) to home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .roomUpdated,
+                accessoryName: nil,
+                roomName: room.name,
+                serviceName: nil,
+                characteristicName: "Added",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didRemove room: HMRoom) {
-        logEvent("Room removed: \(room.name) from home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .roomUpdated,
+                accessoryName: nil,
+                roomName: room.name,
+                serviceName: nil,
+                characteristicName: "Removed",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didAdd zone: HMZone) {
-        logEvent("Zone added: \(zone.name) to home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "Zone: \(zone.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Added",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didRemove zone: HMZone) {
-        logEvent("Zone removed: \(zone.name) from home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "Zone: \(zone.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Removed",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didAdd serviceGroup: HMServiceGroup) {
-        logEvent("Service group added: \(serviceGroup.name) to home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "ServiceGroup: \(serviceGroup.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Added",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didRemove serviceGroup: HMServiceGroup) {
-        logEvent("Service group removed: \(serviceGroup.name) from home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "ServiceGroup: \(serviceGroup.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Removed",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didAdd actionSet: HMActionSet) {
-        logEvent("Action set added: \(actionSet.name) to home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .actionSetExecuted,
+                accessoryName: actionSet.name,
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Added",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didRemove actionSet: HMActionSet) {
-        logEvent("Action set removed: \(actionSet.name) from home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .actionSetExecuted,
+                accessoryName: actionSet.name,
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Removed",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didExecuteActionSet actionSet: HMActionSet) {
-        logEvent("Action set executed: \(actionSet.name) in home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .actionSetExecuted,
+                accessoryName: actionSet.name,
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Executed",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didAdd trigger: HMTrigger) {
-        logEvent("Trigger added: \(trigger.name) to home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "Trigger: \(trigger.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Added",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didRemove trigger: HMTrigger) {
-        logEvent("Trigger removed: \(trigger.name) from home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "Trigger: \(trigger.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Removed",
+                value: nil
+            ))
     }
 
     func home(_ home: HMHome, didUpdate trigger: HMTrigger) {
-        logEvent("Trigger updated: \(trigger.name) in home: \(home.name)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .homeUpdated,
+                accessoryName: "Trigger: \(trigger.name)",
+                roomName: nil,
+                serviceName: nil,
+                characteristicName: "Updated",
+                value: nil
+            ))
     }
 }
 
 extension HomeKitManager: HMAccessoryDelegate {
     func accessoryDidUpdateName(_ accessory: HMAccessory) {
         let room = getRoomName(for: accessory)
-        logEvent("Accessory name updated: \(accessory.name) [Room: \(room)]")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .serviceUpdated,
+                accessoryName: accessory.name,
+                roomName: room,
+                serviceName: nil,
+                characteristicName: "Name Updated",
+                value: nil
+            ))
     }
 
     func accessory(_ accessory: HMAccessory, didUpdateNameFor service: HMService) {
         let room = getRoomName(for: accessory)
         logEvent(
-            "Service name updated: \(service.name) on accessory: \(accessory.name) [Room: \(room)]")
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .serviceUpdated,
+                accessoryName: accessory.name,
+                roomName: room,
+                serviceName: service.name,
+                characteristicName: "Name Updated",
+                value: nil
+            ))
     }
 
     func accessory(_ accessory: HMAccessory, didUpdateAssociatedServiceTypeFor service: HMService) {
         let room = getRoomName(for: accessory)
         logEvent(
-            "Service type updated for: \(service.name) on accessory: \(accessory.name) [Room: \(room)]"
-        )
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .serviceUpdated,
+                accessoryName: accessory.name,
+                roomName: room,
+                serviceName: service.name,
+                characteristicName: "Type Updated",
+                value: nil
+            ))
     }
 
     func accessoryDidUpdateServices(_ accessory: HMAccessory) {
         let room = getRoomName(for: accessory)
-        logEvent("Services updated for accessory: \(accessory.name) [Room: \(room)]")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .serviceUpdated,
+                accessoryName: accessory.name,
+                roomName: room,
+                serviceName: nil,
+                characteristicName: "Services Updated",
+                value: nil
+            ))
     }
 
     func accessoryDidUpdateReachability(_ accessory: HMAccessory) {
         let status = accessory.isReachable ? "reachable" : "unreachable"
         let room = getRoomName(for: accessory)
-        logEvent("Accessory \(accessory.name) [Room: \(room)] is now \(status)")
+        logEvent(
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .accessoryReachabilityChanged,
+                accessoryName: accessory.name,
+                roomName: room,
+                serviceName: nil,
+                characteristicName: "Reachability",
+                value: status
+            ))
     }
 
     func accessory(
         _ accessory: HMAccessory, service: HMService,
         didUpdateValueFor characteristic: HMCharacteristic
     ) {
-        let value = characteristic.value ?? "nil"
+        let value = "\(characteristic.value ?? "nil")"
         let room = getRoomName(for: accessory)
         logEvent(
-            "Characteristic updated: \(characteristic.localizedDescription) = \(value) on service: \(service.name) of accessory: \(accessory.name) [Room: \(room)]"
-        )
+            HomeKitEvent(
+                timestamp: Date(),
+                type: .characteristicUpdated,
+                accessoryName: accessory.name,
+                roomName: room,
+                serviceName: service.name,
+                characteristicName: characteristic.localizedDescription,
+                value: value
+            ))
     }
 }

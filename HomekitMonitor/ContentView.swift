@@ -5,8 +5,8 @@
 //  Created by Oleh Khomey on 06.12.2025.
 //
 
-import SwiftUI
 import CodeEditor
+import SwiftUI
 
 struct ContentView: View {
     @StateObject private var homeKitManager = HomeKitManager()
@@ -47,21 +47,32 @@ struct EventLogView: View {
             ScrollView {
                 ScrollViewReader { proxy in
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(homeKitManager.eventLog) { entry in
+                        ForEach(homeKitManager.eventLog) { event in
                             HStack(spacing: 8) {
-                                Button(action: {
-                                    homeKitManager.addSubscription(pattern: entry.rawEvent)
-                                }) {
-                                    Image(systemName: "plus.circle")
-                                        .foregroundColor(.blue)
+                                if event.type == .characteristicUpdated,
+                                    let accessory = event.accessoryName,
+                                    let characteristic = event.characteristicName
+                                {
+                                    Button(action: {
+                                        homeKitManager.addSubscription(
+                                            accessoryName: accessory,
+                                            characteristicName: characteristic
+                                        )
+                                    }) {
+                                        Image(systemName: "plus.circle")
+                                            .foregroundColor(.blue)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Image(systemName: "circle")
+                                        .foregroundColor(.clear)
                                 }
-                                .buttonStyle(.plain)
 
-                                Text(entry.message)
+                                Text(event.displayText)
                                     .font(.system(.caption, design: .monospaced))
                                     .textSelection(.enabled)
                             }
-                            .id(entry.id)
+                            .id(event.id)
                         }
                     }
                     .onChange(of: homeKitManager.eventLog.count) { _ in
@@ -80,7 +91,6 @@ struct EventLogView: View {
 
 struct SubscriptionsView: View {
     @ObservedObject var homeKitManager: HomeKitManager
-    @State private var newPattern = ""
     @State private var editingSubscription: Subscription?
 
     var body: some View {
@@ -89,18 +99,10 @@ struct SubscriptionsView: View {
                 .font(.largeTitle)
                 .padding()
 
-            HStack {
-                TextField("Enter pattern to watch...", text: $newPattern)
-                    .textFieldStyle(.roundedBorder)
-
-                Button("Add") {
-                    if !newPattern.isEmpty {
-                        homeKitManager.addSubscription(pattern: newPattern)
-                        newPattern = ""
-                    }
-                }
-            }
-            .padding(.horizontal)
+            Text("Click + icon next to characteristic updates in Events tab to subscribe")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.bottom)
 
             List {
                 ForEach(homeKitManager.subscriptions) { subscription in
@@ -136,8 +138,12 @@ struct SubscriptionRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(subscription.pattern)
+                Text(subscription.accessoryName)
                     .font(.headline)
+
+                Text(subscription.characteristicName)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
 
                 HStack {
                     Text("Matches: \(subscription.matchCount)")
@@ -205,8 +211,11 @@ struct EditSubscriptionView: View {
                 .padding()
 
             VStack(alignment: .leading) {
-                Text("Pattern: \(subscription.pattern)")
+                Text("Accessory: \(subscription.accessoryName)")
                     .font(.headline)
+                Text("Characteristic: \(subscription.characteristicName)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
                     .padding(.bottom, 10)
 
                 Text("MQTT Topic")
@@ -220,17 +229,18 @@ struct EditSubscriptionView: View {
                 CodeEditor(
                     source: $mqttPayload,
                     language: .json,
-                    theme: CodeEditor.ThemeName(rawValue: "atom-one-dark"))
-                
-                    .font(.system(.body, design: .monospaced))
-                    .frame(height: 120)
-                    .border(Color.gray.opacity(0.3))
-                    .disableAutocorrection(true)
-                    #if os(macOS)
-                        .onAppear {
-                            NSTextView.appearance().automaticQuoteSubstitutionEnabled = false
-                        }
-                    #endif
+                    theme: CodeEditor.ThemeName(rawValue: "atom-one-dark")
+                )
+
+                .font(.system(.body, design: .monospaced))
+                .frame(height: 120)
+                .border(Color.gray.opacity(0.3))
+                .disableAutocorrection(true)
+                #if os(macOS)
+                    .onAppear {
+                        NSTextView.appearance().automaticQuoteSubstitutionEnabled = false
+                    }
+                #endif
 
                 Text("Example: {\"state\": \"{{value}}\", \"device\": \"sensor1\"}")
                     .font(.caption2)
