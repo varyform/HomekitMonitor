@@ -260,6 +260,16 @@ struct MQTTConfigView: View {
                 .font(.largeTitle)
                 .padding()
 
+            HStack {
+                Circle()
+                    .fill(homeKitManager.mqttConnected ? Color.green : Color.red)
+                    .frame(width: 12, height: 12)
+                Text(homeKitManager.mqttConnected ? "Connected" : "Disconnected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.bottom, 10)
+
             Form {
                 Section(header: Text("Broker Settings")) {
                     HStack {
@@ -300,8 +310,20 @@ struct MQTTConfigView: View {
             }
             .padding()
 
-            Button("Save Configuration") {
-                homeKitManager.saveMQTTConfig()
+            HStack(spacing: 15) {
+                Button("Save Configuration") {
+                    homeKitManager.saveMQTTConfig()
+                }
+
+                Button("Reconnect") {
+                    homeKitManager.reconnectMQTT()
+                }
+                .disabled(!homeKitManager.mqttConnected)
+
+                Button("Disconnect") {
+                    homeKitManager.disconnectMQTT()
+                }
+                .disabled(!homeKitManager.mqttConnected)
             }
             .padding()
         }

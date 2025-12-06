@@ -8,6 +8,9 @@
 import Combine
 import Foundation
 import HomeKit
+import MQTTNIO
+import NIOCore
+import NIOPosix
 
 struct LogEntry: Identifiable {
     let id = UUID()
@@ -57,13 +60,22 @@ class HomeKitManager: NSObject, ObservableObject {
     @Published var eventLog: [LogEntry] = []
     @Published var subscriptions: [Subscription] = []
     @Published var mqttConfig = MQTTConfig()
+    @Published var mqttConnected = false
+
+    private var mqttClient: MQTTClient?
+    private let eventLoopGroup: MultiThreadedEventLoopGroup
 
     override init() {
+        self.eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         super.init()
         homeManager.delegate = self
         loadSubscriptions()
         loadMQTTConfig()
         logEvent("HomeKitManager initialized")
+    }
+
+    deinit {
+        try? eventLoopGroup.syncShutdownGracefully()
     }
 
     private func logEvent(_ message: String) {
@@ -77,6 +89,19 @@ class HomeKitManager: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.eventLog.append(entry)
             self.checkSubscriptions(for: message, at: timestamp)
+        }
+    }
+
+    private func logEventAsync(_ message: String) async {
+        let timestamp = Date()
+        let timestampStr = ISO8601DateFormatter().string(from: timestamp)
+        let logMessage = "[\(timestampStr)] \(message)"
+        print(logMessage)
+
+        let entry = LogEntry(timestamp: timestamp, message: logMessage, rawEvent: message)
+
+        await MainActor.run {
+            self.eventLog.append(entry)
         }
     }
 
@@ -112,16 +137,19 @@ class HomeKitManager: NSObject, ObservableObject {
                 subscriptions[index].matchCount += 1
 
                 // Extract value from message if present (e.g., "= VALUE")
-                if !subscriptions[index].mqttTopic.isEmpty,
-                    let valueRange = message.range(of: "= ")
-                {
-                    let valueStart = message.index(after: valueRange.upperBound)
-                    var valueEnd = message.endIndex
-                    if let nextSpace = message[valueStart...].firstIndex(of: " ") {
-                        valueEnd = nextSpace
+                if !subscriptions[index].mqttTopic.isEmpty {
+                    if let valueRange = message.range(of: "= ") {
+                        let valueStart = valueRange.upperBound
+                        var valueEnd = message.endIndex
+                        if let nextSpace = message[valueStart...].firstIndex(of: " ") {
+                            valueEnd = nextSpace
+                        }
+                        let value = String(message[valueStart..<valueEnd])
+                        logEvent("MQTT: Extracted value '\(value)' from message")
+                        publishToMQTT(subscription: subscriptions[index], value: value)
+                    } else {
+                        logEvent("MQTT: No value found in message (missing '= ')")
                     }
-                    let value = String(message[valueStart..<valueEnd])
-                    publishToMQTT(subscription: subscriptions[index], value: value)
                 }
 
                 saveSubscriptions()
@@ -132,8 +160,151 @@ class HomeKitManager: NSObject, ObservableObject {
     private func publishToMQTT(subscription: Subscription, value: String) {
         let topic = "\(mqttConfig.prefix)/\(subscription.mqttTopic)"
         let payload = subscription.mqttPayload.replacingOccurrences(of: "{{value}}", with: value)
-        logEvent("MQTT: Publishing to \(topic) - \(payload)")
-        // TODO: Implement actual MQTT publish
+        let server = mqttConfig.server
+        let port = mqttConfig.port
+        let payloadTemplate = subscription.mqttPayload
+
+        print("DEBUG: publishToMQTT called - about to create Task.detached")
+
+        Task.detached { [weak self] in
+            print("DEBUG: Inside Task.detached")
+            guard let self = self else {
+                print("DEBUG: self is nil, returning")
+                return
+            }
+
+            print("DEBUG: About to log MQTT info")
+            await self.logEventAsync("MQTT: Topic=\(topic)")
+            await self.logEventAsync("MQTT: Payload before interpolation=\(payloadTemplate)")
+            await self.logEventAsync("MQTT: Value to interpolate='\(value)'")
+            await self.logEventAsync("MQTT: Payload after interpolation=\(payload)")
+            await self.logEventAsync("MQTT: Server=\(server):\(port)")
+
+            print("DEBUG: About to start connection/publish")
+            do {
+                print("DEBUG: Calling connectMQTTIfNeeded with timeout")
+                try await withTimeout(seconds: 10) {
+                    try await self.connectMQTTIfNeeded()
+                }
+                print("DEBUG: Connected, about to publish")
+                try await withTimeout(seconds: 5) {
+                    try await self.mqttClient?.publish(
+                        to: topic, payload: ByteBuffer(string: payload), qos: .atLeastOnce,
+                        retain: false)
+                }
+                print("DEBUG: Publish completed")
+                await self.logEventAsync("MQTT: ✓ Published successfully")
+            } catch is TimeoutError {
+                print("DEBUG: Caught TimeoutError")
+                await self.logEventAsync("MQTT: ✗ Connection timeout")
+                await self.resetMQTTClient()
+            } catch {
+                print("DEBUG: Caught error: \(error)")
+                await self.logEventAsync(
+                    "MQTT: ✗ Failed to publish - \(error.localizedDescription)")
+                await self.resetMQTTClient()
+            }
+            print("DEBUG: Task.detached completed")
+        }
+        print("DEBUG: publishToMQTT function returning")
+    }
+
+    private func resetMQTTClient() async {
+        mqttClient = nil
+        await MainActor.run {
+            self.mqttConnected = false
+        }
+    }
+
+    private func connectMQTTIfNeeded() async throws {
+        print("DEBUG: connectMQTTIfNeeded called")
+        if mqttClient != nil && mqttConnected {
+            print("DEBUG: Already connected, returning")
+            return
+        }
+
+        print("DEBUG: About to log connection message")
+        await logEventAsync("MQTT: Connecting to \(mqttConfig.server):\(mqttConfig.port)...")
+
+        print("DEBUG: Creating MQTTClient configuration")
+        let configuration = MQTTClient.Configuration(
+            userName: mqttConfig.username.isEmpty ? nil : mqttConfig.username,
+            password: mqttConfig.password.isEmpty ? nil : mqttConfig.password
+        )
+
+        print("DEBUG: Creating MQTTClient instance")
+        let client = MQTTClient(
+            host: mqttConfig.server,
+            port: mqttConfig.port,
+            identifier: "homekit-monitor-\(UUID().uuidString)",
+            eventLoopGroupProvider: .createNew,
+            configuration: configuration
+        )
+
+        print("DEBUG: About to call client.connect()")
+        try await client.connect()
+        print("DEBUG: client.connect() returned")
+
+        self.mqttClient = client
+        print("DEBUG: About to set mqttConnected = true on MainActor")
+        await MainActor.run {
+            self.mqttConnected = true
+        }
+        print("DEBUG: About to log success message")
+        await logEventAsync("MQTT: ✓ Connected successfully")
+        print("DEBUG: connectMQTTIfNeeded completed")
+    }
+
+    private func withTimeout<T>(seconds: Int, operation: @escaping () async throws -> T)
+        async throws -> T
+    {
+        try await withThrowingTaskGroup(of: T?.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+                return nil
+            }
+
+            if let result = try await group.next() {
+                group.cancelAll()
+                if let value = result {
+                    return value
+                } else {
+                    throw TimeoutError()
+                }
+            }
+            throw TimeoutError()
+        }
+    }
+
+    struct TimeoutError: Error {}
+
+    func disconnectMQTT() {
+        Task.detached { [weak self] in
+            guard let self = self else { return }
+            do {
+                try await self.mqttClient?.disconnect()
+                await self.logEventAsync("MQTT: Disconnected")
+            } catch {
+                await self.logEventAsync(
+                    "MQTT: Error disconnecting - \(error.localizedDescription)")
+            }
+            await MainActor.run {
+                self.mqttConnected = false
+            }
+            self.mqttClient = nil
+        }
+    }
+
+    func reconnectMQTT() {
+        disconnectMQTT()
+        Task.detached { [weak self] in
+            guard let self = self else { return }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await self.connectMQTTIfNeeded()
+        }
     }
 
     private func saveSubscriptions() {
