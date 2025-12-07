@@ -75,7 +75,7 @@ struct EventLogView: View {
                             .id(event.id)
                         }
                     }
-                    .onChange(of: homeKitManager.eventLog.count) { _ in
+                    .onChange(of: homeKitManager.eventLog.count) {
                         if let lastEntry = homeKitManager.eventLog.last {
                             withAnimation {
                                 proxy.scrollTo(lastEntry.id, anchor: .bottom)
@@ -168,8 +168,8 @@ struct SubscriptionRow: View {
         .padding(.vertical, 4)
         .background(isHighlighted ? Color.orange.opacity(0.2) : Color.clear)
         .animation(.easeInOut(duration: 0.3), value: isHighlighted)
-        .onChange(of: subscription.lastMatch) { newValue in
-            if newValue != nil {
+        .onChange(of: subscription.lastMatch) {
+            if subscription.lastMatch != nil {
                 isHighlighted = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     isHighlighted = false
